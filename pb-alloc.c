@@ -125,28 +125,62 @@ void init () {
  */
 void* malloc (size_t size) {
 
+  // initializing the heap ONLY the FIRST time malloc is called 	
   init();
 
+  // if a block size requested is of size 0 return NULL right here
   if (size == 0) {
     return NULL;
   }
 
+  // the total size of the memory allocated should account for the header size as well
   size_t    total_size = size + sizeof(header_s);
-  header_s* header_ptr = (header_s*)free_addr;
-  void*     block_ptr  = (void*)(free_addr + sizeof(header_s));
 
-  intptr_t new_free_addr = free_addr + total_size;
+  // the padding that should be added after free_addr and before the header to account for double word alignment of block_ptr
+  size_t    padding = 16 - ( (free_addr + sizeof(header_s)) % 16 );
+
+  // in the special case when free_addr + size of the header is already aligned we wanna have a padding of 0 instead of 16
+  // that the above equation is giving us
+  if (padding == 16)
+  {
+    padding = 0;
+  }
+
+  // the pointer to the header of the block is now
+  // the address to the next available byte in the heap 
+  header_s* header_ptr = (header_s*) (free_addr + padding);
+
+  // the pointer to the block (block_ptr) itself is now
+  // the address to the header shifted to the right by the size of the header
+  // (note: the header_ptr is left unchanged)
+  void*     block_ptr  = (void*)(free_addr + padding + sizeof(header_s));
+
+  // the next available free addr is potentially gonna be shifted to the right 
+  // by the size of the block + size of the header (i.e. total_size)
+  intptr_t new_free_addr = free_addr + padding + total_size;
+
+  // if the potential new free address goes beyond the end of the stack
+  // then return NULL
   if (new_free_addr > end_addr) {
-
+    
     return NULL;
 
-  } else {
+  } 
+  
+  // otherwise, update the address of the next available block (i.e. free_addr)
+  else {
 
     free_addr = new_free_addr;
 
   }
 
+  // equivalent to: (*header_ptr).size = size
+  // the header which header_ptr points at has a size property
+  // which we update to be the size of the block we requested, when calling malloc
   header_ptr->size = size;
+
+  // returns the pointer to the block 
+  // (note: NOT the pointer to the header)
   return block_ptr;
 
 } // malloc()
@@ -212,27 +246,45 @@ void* calloc (size_t nmemb, size_t size) {
  */
 void* realloc (void* ptr, size_t size) {
 
+  // if the ptr is NULL then just allocate new block with normal malloc call
   if (ptr == NULL) {
     return malloc(size);
   }
 
+  // if we want to resize to 0, that's the same as freeing the block entirely, so just call free on the ptr provided
   if (size == 0) {
     free(ptr);
     return NULL;
   }
 
+  // find the header ptr of the old block by subtracting the size of the header from the ptr (ptr to the block)
   header_s* old_header = (header_s*)((intptr_t)ptr - sizeof(header_s));
+
+  // equivalent to: size_t old_size = (*old_header).size
+  // here we are extracting the size of the old block from its header
   size_t    old_size   = old_header->size;
 
+  // if the size that we want this block to have is smaller or equal to the old size
+  // then just return the old pointer
   if (size <= old_size) {
     return ptr;
   }
 
+  // otherwise, just allocate a new memory block (with a larger size)
   void* new_ptr = malloc(size);
-  if (new_ptr != NULL) {
+
+  // if the new_ptr != NULL, which happens if size == 0, or if heap is full
+  // then copy the old block at ptr, of size old_size, into block at new_ptr
+  // also free the old block at ptr
+  if (new_ptr != NULL) 
+  {
+    //copying	  
     memcpy(new_ptr, ptr, old_size);
+    //freeing
     free(ptr);
   }
+
+  //return the pointer to the new block 
   return new_ptr;
   
 } // realloc()
